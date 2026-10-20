@@ -1,0 +1,20 @@
+# Environment files and local secrets
+.env
+**/.env
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Local databases
+*.sqlite3
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
