@@ -4,6 +4,7 @@ import os
 
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 
 load_dotenv()
 
@@ -14,7 +15,14 @@ if not API_KEY:
         "GEMINI_API_KEY is missing from backend/.env"
     )
 
-client = genai.Client(api_key=API_KEY)
+# Avoid the SDK's long default retry delays. A quick model failover below gives
+# the user a faster response when a model is overloaded.
+client = genai.Client(
+    api_key=API_KEY,
+    http_options=types.HttpOptions(
+        retry_options=types.HttpRetryOptions(attempts=1),
+    ),
+)
 
 
 class GeminiUnavailableError(RuntimeError):
@@ -48,7 +56,7 @@ Return only valid JSON with this structure:
   ]
 }}
 
-Include normal inputs, boundary cases, and edge cases.
+Generate 6 to 10 concise, high-value tests covering normal, boundary, and edge cases.
 Do not execute the submitted code.
 Do not assume the current implementation is correct.
 If intended behavior is unclear, state your assumption.
@@ -57,15 +65,18 @@ Submitted Python code:
 {source_code}
 """
 
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
-    fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash")
 
     for model in dict.fromkeys((primary_model, fallback_model)):
         try:
             response = client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"response_mime_type": "application/json"},
+                config={
+                    "response_mime_type": "application/json",
+                    "max_output_tokens": 2048,
+                },
             )
 
             result = json.loads(response.text)
