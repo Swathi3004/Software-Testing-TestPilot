@@ -2,7 +2,10 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .services.llm_generator import generate_tests_with_llm
+from .services.llm_generator import (
+    GeminiUnavailableError,
+    generate_tests_with_llm,
+)
 from .services.test_runner import run_tests
 
 
@@ -70,5 +73,7 @@ def generate_tests(request):
             "failed": execution["failed"],
         })
 
+    except GeminiUnavailableError as exc:
+        return Response({"error": str(exc)}, status=503)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)

@@ -17,6 +17,17 @@ if not API_KEY:
 client = genai.Client(api_key=API_KEY)
 
 
+class GeminiUnavailableError(RuntimeError):
+    """Raised when Gemini is temporarily unable to serve requests."""
+
+
+def _http_status(exc):
+    """Get the HTTP status across google-genai SDK error versions."""
+    status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    response = getattr(exc, "response", None)
+    return status or getattr(response, "status_code", None)
+
+
 def generate_tests_with_llm(source_code):
     prompt = f"""
 You are a Python software testing assistant.
@@ -46,27 +57,32 @@ Submitted Python code:
 {source_code}
 """
 
-    try:
-        response = client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", "gemini-3.6-flash"),
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "temperature": 0.2,
-            },
-        )
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+    fallback_model = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 
-        result = json.loads(response.text)
+    for model in dict.fromkeys((primary_model, fallback_model)):
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
 
-        if not isinstance(result.get("tests"), list):
-            raise ValueError("Invalid tests returned by Gemini.")
+            result = json.loads(response.text)
 
-        if not isinstance(result.get("function_name"), str):
-            raise ValueError("Function name missing from Gemini response.")
+            if not isinstance(result.get("tests"), list):
+                raise ValueError("Invalid tests returned by Gemini.")
 
-        return result
+            if not isinstance(result.get("function_name"), str):
+                raise ValueError("Function name missing from Gemini response.")
 
-    except Exception as exc:
-        raise ValueError(
-            f"Gemini test generation failed: {exc}"
-        ) from exc
+            return result
+        except Exception as exc:
+            if _http_status(exc) in (502, 503, 504):
+                continue
+            raise ValueError(f"Gemini test generation failed: {exc}") from exc
+
+    raise GeminiUnavailableError(
+        "Gemini is temporarily unavailable on the selected models. "
+        "Please wait a moment and try again."
+    )

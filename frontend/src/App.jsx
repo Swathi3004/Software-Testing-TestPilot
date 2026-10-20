@@ -105,7 +105,7 @@ export default function App() {
               </button>
 
               <p className="mt-3 text-xs leading-5 text-slate-400">
-                Mock test generation and execution are connected to Django REST APIs.
+                AI test generation and execution are connected to Django REST APIs.
               </p>
             </div>
           </div>
