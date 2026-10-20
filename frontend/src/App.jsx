@@ -7,6 +7,7 @@ import {
   CheckCircle,
   Bug,
   ShieldCheck,
+  LoaderCircle,
 } from "lucide-react";
 
 export default function App() {
@@ -100,12 +101,12 @@ export default function App() {
                 disabled={loading || !code.trim()}
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3.5 font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Play size={17} />
-                {loading ? "Running Tests..." : "Generate & Run Tests"}
+                {loading ? <LoaderCircle size={17} className="animate-spin" /> : <Play size={17} />}
+                {loading ? "Generating Tests..." : "Generate & Run Tests"}
               </button>
 
               <p className="mt-3 text-xs leading-5 text-slate-400">
-                Mock test generation and execution are connected to Django REST APIs.
+                AI test generation and execution are connected to Django REST APIs.
               </p>
             </div>
           </div>
@@ -123,7 +124,17 @@ export default function App() {
             </div>
 
             <div className="flex min-h-80 flex-col items-center px-6 py-10 text-center">
-              {error ? (
+              {loading ? (
+                <>
+                  <div className="rounded-full bg-violet-50 p-4 text-violet-600">
+                    <LoaderCircle size={30} className="animate-spin" />
+                  </div>
+                  <h3 className="mt-5 text-lg font-bold">Generating your tests</h3>
+                  <p className="mt-2 text-sm text-slate-500">
+                    The AI is preparing test cases, then the backend will run them.
+                  </p>
+                </>
+              ) : error ? (
                 <>
                   <div className="rounded-full bg-red-50 p-4 text-red-600">
                     <Bug size={30} />

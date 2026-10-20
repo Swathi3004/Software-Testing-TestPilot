@@ -2,7 +2,7 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .services.llm_generator import generate_tests_with_llm
+from .services.mock_generator import generate_tests as generate_local_tests
 from .services.test_runner import run_tests
 
 
@@ -31,7 +31,31 @@ def generate_tests(request):
         )
 
     try:
-        generated = generate_tests_with_llm(code)
+        # Common arithmetic functions use the local generator for an immediate
+        # result. Only code outside its supported subset needs the remote model.
+        try:
+            generated = generate_local_tests(code)
+            generated["analysis"] = "Generated instantly with local rules."
+            mode = "local"
+        except ValueError as local_error:
+            if str(local_error).startswith("Invalid Python syntax:"):
+                return Response({"error": str(local_error)}, status=400)
+
+            try:
+                from .services.llm_generator import (
+                    GeminiUnavailableError,
+                    generate_tests_with_llm,
+                )
+            except RuntimeError as exc:
+                return Response({"error": str(exc)}, status=503)
+
+            try:
+                generated = generate_tests_with_llm(code)
+                mode = "gemini"
+            except GeminiUnavailableError as exc:
+                return Response({"error": str(exc)}, status=503)
+            except ValueError as exc:
+                return Response({"error": str(exc)}, status=400)
 
         # Validate the generated test structure before using it.
         tests = generated.get("tests", [])
@@ -59,8 +83,12 @@ def generate_tests(request):
 
         return Response({
             "status": "success",
-            "message": "AI tests generated and executed.",
-            "mode": "gemini",
+            "message": (
+                "Tests generated instantly with local rules and executed."
+                if mode == "local"
+                else "AI tests generated and executed."
+            ),
+            "mode": mode,
             "function_name": generated["function_name"],
             "analysis": generated.get("analysis", ""),
             "tests": tests,
