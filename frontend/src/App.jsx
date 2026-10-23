@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { generateTests } from "./api";
+import { generateTests, suggestFix } from "./api";
 import {
   Code2,
   Play,
@@ -17,6 +17,10 @@ export default function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fixLoading, setFixLoading] = useState(false);
+const [fixError, setFixError] = useState("");
+const [fixSuggestion, setFixSuggestion] = useState(null);
+const [testedCode, setTestedCode] = useState("");
 
   const handleGenerateTests = async () => {
     setLoading(true);
@@ -25,16 +29,45 @@ export default function App() {
 
     try {
       const data = await generateTests(code);
-      setResult(data);
+setResult(data);
+setTestedCode(code);
+setFixSuggestion(null);
+setFixError("");
     } catch (err) {
       setError(
         err.response?.data?.error ||
           "Unable to connect to the Django API."
       );
-    } finally {
-      setLoading(false);
-    }
-  };
+      } finally {
+    setLoading(false);
+  }
+};
+
+const handleSuggestFix = async () => {
+  const failedResults =
+    result?.results?.filter((test) => test.status === "failed") || [];
+
+  if (!testedCode || failedResults.length === 0) {
+    setFixError("No failed tests are available.");
+    return;
+  }
+
+  setFixLoading(true);
+  setFixError("");
+  setFixSuggestion(null);
+
+  try {
+    const data = await suggestFix(testedCode, failedResults);
+    setFixSuggestion(data);
+  } catch (err) {
+    setFixError(
+      err.response?.data?.error ||
+        "Unable to generate an AI code suggestion."
+    );
+  } finally {
+    setFixLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -213,15 +246,71 @@ export default function App() {
                     ))}
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setResult(null);
-                      setError("");
-                    }}
-                    className="mt-5 text-sm font-semibold text-violet-600 hover:text-violet-800"
-                  >
-                    Reset results
-                  </button>
+                  
+{result.failed > 0 && (
+  <button
+    onClick={handleSuggestFix}
+    disabled={fixLoading}
+    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+  >
+    {fixLoading ? (
+      <LoaderCircle size={17} className="animate-spin" />
+    ) : (
+      <Sparkles size={17} />
+    )}
+    {fixLoading ? "Analyzing..." : "Suggest Fix with AI"}
+  </button>
+)}
+
+{fixError && (
+  <p className="mt-3 w-full text-left text-sm text-red-600">
+    {fixError}
+  </p>
+)}
+
+{fixSuggestion && (
+  <div className="mt-5 w-full rounded-xl border border-violet-200 bg-violet-50 p-4 text-left">
+    <h3 className="font-bold text-violet-800">
+      AI Code Suggestion
+    </h3>
+
+    <p className="mt-3 text-sm font-semibold text-slate-700">
+      Bug explanation
+    </p>
+    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">
+      {fixSuggestion.bug_explanation}
+    </p>
+
+    <p className="mt-4 text-sm font-semibold text-slate-700">
+      Suggested code
+    </p>
+    <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-emerald-300">
+      <code>{fixSuggestion.suggested_code}</code>
+    </pre>
+
+    <p className="mt-4 text-sm font-semibold text-slate-700">
+      Changes
+    </p>
+
+    {Array.isArray(fixSuggestion.changes) ? (
+      <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-600">
+        {fixSuggestion.changes.map((change, index) => (
+          <li key={index}>{change}</li>
+        ))}
+      </ul>
+    ) : (
+      <p className="mt-1 text-sm text-slate-600">
+        {String(fixSuggestion.changes ?? "No details provided.")}
+      </p>
+    )}
+
+    <p className="mt-4 text-xs text-amber-700">
+      Review the suggested code and run the tests again.
+      This AI suggestion has not been verified.
+    </p>
+  </div>
+)}
+
                 </>
               ) : (
                 <>

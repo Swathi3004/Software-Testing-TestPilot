@@ -4,6 +4,11 @@ from rest_framework.response import Response
 
 from .services.mock_generator import generate_tests as generate_local_tests
 from .services.test_runner import run_tests
+from .services.llm_generator import (
+    GeminiUnavailableError,
+    generate_tests_with_llm,
+    suggest_code_fix,
+)
 
 
 @api_view(["GET"])
@@ -19,84 +24,93 @@ def generate_tests(request):
     code = request.data.get("code", "")
 
     if not isinstance(code, str) or not code.strip():
-        return Response(
-            {"error": "Source code is required."},
-            status=400
-        )
+        return Response({"error": "Source code is required."}, status=400)
 
     if len(code) > 10000:
         return Response(
             {"error": "Source code must be 10,000 characters or less."},
-            status=400
+            status=400,
         )
 
     try:
-        # Common arithmetic functions use the local generator for an immediate
-        # result. Only code outside its supported subset needs the remote model.
         try:
             generated = generate_local_tests(code)
-            generated["analysis"] = "Generated instantly with local rules."
+            generated["analysis"] = "Generated using local arithmetic rules."
             mode = "local"
         except ValueError as local_error:
             if str(local_error).startswith("Invalid Python syntax:"):
                 return Response({"error": str(local_error)}, status=400)
 
-            try:
-                from .services.llm_generator import (
-                    GeminiUnavailableError,
-                    generate_tests_with_llm,
-                )
-            except RuntimeError as exc:
-                return Response({"error": str(exc)}, status=503)
+            generated = generate_tests_with_llm(code)
+            mode = "gemini"
 
-            try:
-                generated = generate_tests_with_llm(code)
-                mode = "gemini"
-            except GeminiUnavailableError as exc:
-                return Response({"error": str(exc)}, status=503)
-            except ValueError as exc:
-                return Response({"error": str(exc)}, status=400)
-
-        # Validate the generated test structure before using it.
-        tests = generated.get("tests", [])
-        if not tests or len(tests) > 30:
-            return Response(
-                {"error": "AI returned an invalid number of tests."},
-                status=400
-            )
-
-        for test in tests:
-            if (
-                not isinstance(test, dict)
-                or not isinstance(test.get("name"), str)
-                or not isinstance(test.get("input"), dict)
-                or "expected" not in test
-                or not isinstance(test.get("expect_error"), bool)
-            ):
-                return Response(
-                    {"error": "AI returned an invalid test case."},
-                    status=400
-                )
-
-        # Prototype only: this runner is not a secure sandbox.
         execution = run_tests(code, generated)
 
         return Response({
             "status": "success",
-            "message": (
-                "Tests generated instantly with local rules and executed."
-                if mode == "local"
-                else "AI tests generated and executed."
-            ),
+            "message": "Tests generated and executed.",
             "mode": mode,
             "function_name": generated["function_name"],
             "analysis": generated.get("analysis", ""),
-            "tests": tests,
+            "tests": generated["tests"],
             "results": execution["results"],
             "total": execution["total"],
             "passed": execution["passed"],
             "failed": execution["failed"],
         })
 
+    except GeminiUnavailableError as exc:
+        return Response({"error": str(exc)}, status=503)
+    except ValueError as exc:
+        return Response({"error": str(exc)}, status=400)
+
+
+@api_view(["POST"])
+def suggest_fix(request):
+    code = request.data.get("code", "")
+    failed_results = request.data.get("failed_results", [])
+
+    if not isinstance(code, str) or not code.strip():
+        return Response({"error": "Source code is required."}, status=400)
+
+    if len(code) > 10000:
+        return Response({"error": "Source code is too long."}, status=400)
+
+    if not isinstance(failed_results, list) or not failed_results:
+        return Response(
+            {"error": "Failed test results are required."},
+            status=400,
+        )
+
+    if len(failed_results) > 30:
+        return Response(
+            {"error": "No more than 30 failed results are allowed."},
+            status=400,
+        )
+
+    try:
+        # Send only failed results to the LLM.
+        failed_only = [
+            result for result in failed_results
+            if isinstance(result, dict)
+            and result.get("status") == "failed"
+        ]
+
+        if not failed_only:
+            return Response(
+                {"error": "No failed tests were provided."},
+                status=400,
+            )
+
+        suggestion = suggest_code_fix(code, failed_only)
+
+        return Response({
+            "status": "success",
+            "message": "AI code suggestion generated. It has not been verified.",
+            **suggestion,
+        })
+
+    except GeminiUnavailableError as exc:
+        return Response({"error": str(exc)}, status=503)
     except ValueError as exc:
         return Response({"error": str(exc)}, status=400)

@@ -1,3 +1,4 @@
+
 import axios from "axios";
 
 const api = axios.create({
@@ -14,6 +15,16 @@ export const checkHealth = async () => {
 
 export const generateTests = async (code) => {
   const response = await api.post("/generate-tests/", { code });
+  return response.data;
+};
+
+// Request an AI-generated code fix for failed tests
+export const suggestFix = async (code, failedResults) => {
+  const response = await api.post("/suggest-fix/", {
+    code,
+    failed_results: failedResults,
+  });
+
   return response.data;
 };
 
